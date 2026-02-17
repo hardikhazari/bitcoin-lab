@@ -1,0 +1,3 @@
+python-bitcoinrpc
+python-bitcoinrpc
+python-bitcoinlib
