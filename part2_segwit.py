@@ -1,6 +1,7 @@
 import time
 import json
 import subprocess
+import decimal
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 # RPC Configuration
@@ -30,6 +31,13 @@ def setup_wallet(rpc, wallet_name="lab_wallet_segwit"):
         print(f"Wallet {wallet_name} already loaded.")
     return AuthServiceProxy(f"{RPC_URL}/wallet/{wallet_name}")
 
+class DecimalEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle Decimal types from RPC responses."""
+    def default(self, o):
+        if isinstance(o, decimal.Decimal):
+            return float(o)
+        return super().default(o)
+
 def part2_segwit_p2sh_p2wpkh():
     rpc = get_rpc()
     wallet = setup_wallet(rpc)
@@ -55,12 +63,29 @@ def part2_segwit_p2sh_p2wpkh():
     # 3. Step 1: A' -> B'
     print("\n3. Step 1: A' -> B' (SegWit P2SH-P2WPKH)")
     unspent_a = [u for u in wallet.listunspent() if u['address'] == addr_a]
+    if not unspent_a:
+        raise Exception("Address A' has no UTXOs")
+    
     utxo = unspent_a[0]
+    print(f"Using UTXO: txid={utxo['txid']}  vout={utxo['vout']}  amount={utxo['amount']}")
+    
     inputs = [{"txid": utxo['txid'], "vout": utxo['vout']}]
     outputs = {addr_b: 9.99}
     
     raw_tx_1 = wallet.createrawtransaction(inputs, outputs)
+    decoded_tx_1_raw = wallet.decoderawtransaction(raw_tx_1)
+    
+    print("\nDecoded raw tx (A' to B') - ScriptPubKey for B':")
+    for vout in decoded_tx_1_raw["vout"]:
+        if vout["scriptPubKey"].get("address", "") == addr_b:
+            spk = vout["scriptPubKey"]
+            print(f"  asm : {spk['asm']}")
+            print(f"  hex : {spk['hex']}")
+            print(f"  type: {spk['type']}")
+    
     signed_tx_1 = wallet.signrawtransactionwithwallet(raw_tx_1)
+    assert signed_tx_1["complete"], "Signing failed!"
+    
     txid_1 = wallet.sendrawtransaction(signed_tx_1['hex'])
     print(f"TXID A'->B': {txid_1}")
     wallet.generatetoaddress(1, dummy_addr)
@@ -78,18 +103,34 @@ def part2_segwit_p2sh_p2wpkh():
     # 4. Step 2: B' -> C'
     print("\n4. Step 2: B' -> C' (SegWit P2SH-P2WPKH)")
     unspent_b = [u for u in wallet.listunspent() if u['address'] == addr_b]
+    if not unspent_b:
+        raise Exception("Address B' has no UTXOs")
+    
     utxo_b = unspent_b[0]
+    print(f"Using UTXO: txid={utxo_b['txid']}  vout={utxo_b['vout']}  amount={utxo_b['amount']}")
+    print(f"This UTXO came from txid (A' to B'): {txid_1}")
+    print(f"UTXO source matches A'->B' txid: {utxo_b['txid'] == txid_1}")
     
     inputs_2 = [{"txid": utxo_b['txid'], "vout": utxo_b['vout']}]
     outputs_2 = {addr_c: 9.98}
     
     raw_tx_2 = wallet.createrawtransaction(inputs_2, outputs_2)
     signed_tx_2 = wallet.signrawtransactionwithwallet(raw_tx_2)
+    assert signed_tx_2["complete"], "Signing failed!"
+    
     txid_2 = wallet.sendrawtransaction(signed_tx_2['hex'])
     print(f"TXID B'->C': {txid_2}")
     wallet.generatetoaddress(1, dummy_addr)
 
     decoded_tx_2 = wallet.decoderawtransaction(signed_tx_2['hex'])
+    
+    print("\nDecoded signed tx (B' to C') - ScriptSig + Witness:")
+    for vin in decoded_tx_2["vin"]:
+        ss = vin.get("scriptSig", {})
+        tw = vin.get("txinwitness", [])
+        print(f"  ScriptSig asm : {ss.get('asm', '(empty)')}")
+        print(f"  ScriptSig hex : {ss.get('hex', '(empty)')}")
+        print(f"  Witness       : {tw}")
     
     # Size Comparison Data
     print("\n--- Size Comparison ---")
@@ -97,14 +138,45 @@ def part2_segwit_p2sh_p2wpkh():
     print(f"Virtual Size: {decoded_tx_2['vsize']} vbytes")
     print(f"Weight: {decoded_tx_2['weight']} units")
 
-    # BTCdeb Validation
-    print("\n--- BTCdeb Validation for A'->B' ---")
+    # Save results to JSON file
+    size_1 = len(signed_tx_1["hex"]) // 2
+    size_2 = len(signed_tx_2["hex"]) // 2
+    
+    results = {
+        "addresses": {"A_prime": addr_a, "B_prime": addr_b, "C_prime": addr_c},
+        "tx_Ap_to_Bp": {"txid": txid_1, "decoded": decoded_tx_1},
+        "tx_Bp_to_Cp": {"txid": txid_2, "decoded": decoded_tx_2},
+        "signed_hex_BC": signed_tx_2["hex"],
+        "sizes": {"AB_raw_bytes": size_1, "BC_raw_bytes": size_2},
+    }
+    
+    with open("part2_results.json", "w") as f:
+        json.dump(results, f, indent=2, cls=DecimalEncoder)
+    print("\nResults saved to part2_results.json")
+
+    # BTCdeb Validation with proper command generation
+    print("\n" + "=" * 60)
+    print("btcdeb command to validate Part 2:")
+    print("=" * 60)
+    
+    # Extract witness data from B'->C' transaction
+    witness_data = []
+    for vin in decoded_tx_2["vin"]:
+        tw = vin.get("txinwitness", [])
+        witness_data = tw
+    
+    if witness_data:
+        btcdeb_cmd = f"btcdeb '[{' '.join(witness_data)}]' --tx={signed_tx_2['hex']}"
+        print(f"\n{btcdeb_cmd}\n")
+    
+    print("--- BTCdeb Validation for A'->B' ---")
     try:
         subprocess.run(["btcdeb", "-tx", signed_tx_1['hex'], "-in", "0", "-step"], check=True, capture_output=False)
         print("BTCdeb validation for A'->B' successful.")
     except subprocess.CalledProcessError as e:
         print(f"BTCdeb validation for A'->B' failed: {e}")
-        print(f"Stderr: {e.stderr.decode()}")
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"Stderr: {e.stderr.decode()}")
     except FileNotFoundError:
         print("btcdeb command not found. Please ensure btcdeb is installed and in your PATH.")
 
@@ -114,9 +186,12 @@ def part2_segwit_p2sh_p2wpkh():
         print("BTCdeb validation for B'->C' successful.")
     except subprocess.CalledProcessError as e:
         print(f"BTCdeb validation for B'->C' failed: {e}")
-        print(f"Stderr: {e.stderr.decode()}")
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"Stderr: {e.stderr.decode()}")
     except FileNotFoundError:
         print("btcdeb command not found. Please ensure btcdeb is installed and in your PATH.")
+    
+    print("=" * 60)
 
 if __name__ == "__main__":
     try:
