@@ -77,6 +77,27 @@ Ensure that RPC is enabled and properly configured in `bitcoin.conf`.
 
 ---
 
+# Bitcoin Configuration
+
+To allow the Python scripts to communicate with Bitcoin Core using RPC,
+create a configuration file named `bitcoin.conf` in the Bitcoin data directory.
+
+Example location (Windows):
+
+C:\Users\<username>\AppData\Roaming\Bitcoin\bitcoin.conf
+
+Example configuration:
+
+regtest=1 <br>
+server=1  <br>
+rpcuser=user <br>
+rpcpassword=password <br>
+rpcallowip=127.0.0.1 <br>
+fallbackfee=0.0002 <br>
+
+[regtest] <br>
+rpcport=18443 <br>
+
 # Running the Programs
 
 ### Run Part 1 (Legacy Transactions)
