@@ -1,5 +1,6 @@
 import time
 import json
+import subprocess
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 # RPC Configuration
@@ -97,6 +98,27 @@ def part1_legacy_p2pkh():
     print("\n--- Legacy B->C Analysis ---")
     print(f"Challenge Script (Locking): {decoded_tx_2['vout'][0]['scriptPubKey']['asm']}")
     print(f"Response Script (Unlocking): {decoded_tx_2['vin'][0]['scriptSig']['asm']}")
+
+    # BTCdeb Validation
+    print("\n--- BTCdeb Validation for A->B ---")
+    try:
+        subprocess.run(["btcdeb", "-tx", signed_tx_1['hex'], "-in", "0", "-step"], check=True, capture_output=False)
+        print("BTCdeb validation for A->B successful.")
+    except subprocess.CalledProcessError as e:
+        print(f"BTCdeb validation for A->B failed: {e}")
+        print(f"Stderr: {e.stderr.decode()}")
+    except FileNotFoundError:
+        print("btcdeb command not found. Please ensure btcdeb is installed and in your PATH.")
+
+    print("\n--- BTCdeb Validation for B->C ---")
+    try:
+        subprocess.run(["btcdeb", "-tx", signed_tx_2['hex'], "-in", "0", "-step"], check=True, capture_output=False)
+        print("BTCdeb validation for B->C successful.")
+    except subprocess.CalledProcessError as e:
+        print(f"BTCdeb validation for B->C failed: {e}")
+        print(f"Stderr: {e.stderr.decode()}")
+    except FileNotFoundError:
+        print("btcdeb command not found. Please ensure btcdeb is installed and in your PATH.")
 
 if __name__ == "__main__":
     try:

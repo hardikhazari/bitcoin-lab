@@ -53,6 +53,7 @@ Before running the scripts, install the following:
 
 * Python 3.8 or above
 * Bitcoin Core
+* [btcdeb](https://github.com/bitcoin-core/btcdeb) (Bitcoin Script Debugger)
 * Python packages listed in `requirements.txt`
 
 Install dependencies using:
